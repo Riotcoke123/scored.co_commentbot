@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Scored.co Comment Bot</title>
 </head>
 <body>
     <h1>Scored.co Comment Bot</h1>
@@ -21,7 +20,6 @@
 cd scored.co_commentbot
 npm install
 </code></pre>
-
     <h2>Configuration</h2>
     <p>Create a <code>.env</code> file in the project root with the following variables:</p>
     <pre><code>X_API_KEY=your_api_key
