@@ -25,6 +25,8 @@ for (const key of requiredEnv) {
     }
 }
 
+const COMMUNITIES = COMMUNITY.split(',').map(c => c.trim());
+
 // --- CONSTANTS ---
 const API_BASE_URL = 'https://scored.co/api/v2';
 const PROCESSED_POSTS_PATH = path.join(__dirname, 'processed_posts.json');
@@ -32,21 +34,32 @@ const COMMENTS_PATH = path.join(__dirname, 'comments.txt');
 
 // --- HELPER FUNCTIONS ---
 
+// <<< --- CHANGED --- >>>
+// Now loads an array of post objects and returns both the full data
+// and a Set of just the IDs for quick checking.
 function loadProcessedPosts() {
+    let processedData = [];
     try {
         if (fs.existsSync(PROCESSED_POSTS_PATH)) {
-            const data = fs.readFileSync(PROCESSED_POSTS_PATH, 'utf8');
-            return new Set(JSON.parse(data));
+            const fileContent = fs.readFileSync(PROCESSED_POSTS_PATH, 'utf8');
+            // Ensure content is not empty before parsing
+            if (fileContent) {
+                processedData = JSON.parse(fileContent);
+            }
         }
     } catch (error) {
-        console.error('⚠️ Could not read processed_posts.json. Starting fresh.', error);
+        console.error('⚠️ Could not read or parse processed_posts.json. Starting fresh.', error);
+        processedData = []; // Reset on error
     }
-    return new Set();
+    const processedPostIds = new Set(processedData.map(post => post.id));
+    return { processedPostIds, processedData };
 }
 
-function saveProcessedPost(postId, processedPostsSet) {
-    processedPostsSet.add(postId);
-    fs.writeFileSync(PROCESSED_POSTS_PATH, JSON.stringify(Array.from(processedPostsSet), null, 2));
+// <<< --- CHANGED --- >>>
+// Now saves the entire post object to the array.
+function saveProcessedPost(postObject, processedDataArray) {
+    processedDataArray.push(postObject);
+    fs.writeFileSync(PROCESSED_POSTS_PATH, JSON.stringify(processedDataArray, null, 2));
 }
 
 function loadComments() {
@@ -55,10 +68,12 @@ function loadComments() {
             .split('\n')
             .map(line => line.trim())
             .filter(line => line.length > 0);
+
         if (comments.length === 0) {
             console.error('❌ FATAL ERROR: comments.txt is empty. Please add comments to it.');
             process.exit(1);
         }
+        console.log(`🔄 Loaded ${comments.length} comments from comments.txt.`);
         return comments;
     } catch (error) {
         console.error('❌ FATAL ERROR: Could not read comments.txt.', error);
@@ -72,9 +87,9 @@ function getRandomComment(commentsArray) {
 
 // --- API FUNCTIONS ---
 
-async function fetchNewPosts() {
-    const url = `${API_BASE_URL}/post/newv2.json?community=${COMMUNITY}`;
-    console.log(`📡 Fetching new posts from community: ${COMMUNITY}...`);
+async function fetchNewPosts(community) {
+    const url = `${API_BASE_URL}/post/newv2.json?community=${community}`;
+    console.log(`📡 Fetching new posts from community: ${community}...`);
     try {
         const response = await axios.get(url, {
             headers: {
@@ -91,21 +106,21 @@ async function fetchNewPosts() {
         });
         return Array.isArray(response.data) ? response.data : response.data.posts || [];
     } catch (error) {
-        console.error('❌ Error fetching posts:', error.response?.data || error.message);
+        console.error(`❌ Error fetching posts for ${community}:`, error.response?.data || error.message);
         return [];
     }
 }
 
-async function postComment(postId, commentContent) {
+async function postComment(postId, commentContent, community) {
     const url = `${API_BASE_URL}/action/create_comment`;
     const params = new URLSearchParams({
         content: commentContent,
         parentId: postId,
         commentParentId: "0",
-        community: COMMUNITY,
+        community: community,
     });
 
-    console.log(`💬 Posting comment to post ${postId}: "${commentContent}"`);
+    console.log(`💬 Posting comment to post ${postId} in ${community}: "${commentContent}"`);
     try {
         const response = await axios.post(url, params.toString(), {
             headers: {
@@ -115,12 +130,10 @@ async function postComment(postId, commentContent) {
                 'x-api-secret': X_API_SECRET,
                 'x-xsrf-token': X_XSRF_TOKEN,
                 'user-agent': USER_AGENT,
-                'referer': `${REFERER}c/${COMMUNITY}/${postId}`,
+                'referer': `${REFERER}c/${community}/${postId}`,
             }
         });
 
-        // <<< --- THIS IS THE FIX --- >>>
-        // The API returns 'status: true' on success, not 'success: true'.
         if (response.data?.status === true) {
             console.log(`✅ Successfully commented on post ${postId}!`);
         } else {
@@ -138,28 +151,47 @@ async function runBot() {
     console.log(`🤖 Starting bot run at ${new Date().toLocaleString()}`);
 
     const comments = loadComments();
-    const processedPosts = loadProcessedPosts();
-    const newPosts = await fetchNewPosts();
+    // <<< --- CHANGED --- >>>
+    // Load both the set of IDs and the full data array.
+    const { processedPostIds, processedData } = loadProcessedPosts();
 
-    if (!newPosts || newPosts.length === 0) {
-        console.log('No new posts found.');
-        return;
-    }
+    for (const community of COMMUNITIES) {
+        console.log(`\n--- Processing community: ${community} ---`);
 
-    const postsToCommentOn = newPosts.filter(post => !processedPosts.has(post.id));
+        const newPosts = await fetchNewPosts(community);
 
-    if (postsToCommentOn.length === 0) {
-        console.log('All fetched posts have already been processed.');
-    } else {
-        console.log(`Found ${postsToCommentOn.length} new post(s) to process.`);
-        for (const post of postsToCommentOn.reverse()) {
-            const randomComment = getRandomComment(comments);
-            await postComment(post.id, randomComment);
-            saveProcessedPost(post.id, processedPosts);
-            await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_COMMENTS_MS || 3000));
+        // <<< --- ADDED --- >>>
+        // Add the 'community' property to each post object after fetching.
+        const postsWithCommunity = newPosts.map(post => ({ ...post, community: community }));
+
+
+        if (!postsWithCommunity || postsWithCommunity.length === 0) {
+            console.log(`No new posts found for ${community}.`);
+            continue;
+        }
+
+        // <<< --- CHANGED --- >>>
+        // Filter using the set of IDs.
+        const postsToCommentOn = postsWithCommunity.filter(post => !processedPostIds.has(post.id));
+
+        if (postsToCommentOn.length === 0) {
+            console.log(`All fetched posts for ${community} have already been processed.`);
+        } else {
+            console.log(`Found ${postsToCommentOn.length} new post(s) to process in ${community}.`);
+            for (const post of postsToCommentOn.reverse()) {
+                const randomComment = getRandomComment(comments);
+                await postComment(post.id, randomComment, community);
+
+                // <<< --- CHANGED --- >>>
+                // Save the entire post object (which now includes the community).
+                saveProcessedPost(post, processedData);
+                
+                await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_COMMENTS_MS || 3000));
+            }
         }
     }
-    console.log('✅ Bot run finished.');
+
+    console.log('\n✅ Bot run finished.');
 }
 
 // --- START THE BOT ---
@@ -167,4 +199,4 @@ runBot();
 setInterval(runBot, POLL_INTERVAL_MS || 300000);
 
 console.log(`🚀 Scored Comment Bot has started.`);
-console.log(`Watching community "${COMMUNITY}" every ${parseInt(POLL_INTERVAL_MS || 300000) / 1000 / 60} minutes.`);
+console.log(`Watching communities "${COMMUNITIES.join(', ')}" every ${parseInt(POLL_INTERVAL_MS || 300000) / 1000 / 60} minutes.`);
