@@ -1,86 +1,72 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Scored.co Comment Bot</title>
+</head>
 <body>
-  <h1>🤖 Scored.co Comment Bot</h1>
-  <p>
-    A Node.js bot that automatically comments on new posts in a 
-    <strong><a href="https://scored.co/" target="_blank">Scored.co</a></strong> community using predefined comments.  
-    It fetches new posts at regular intervals, selects a random comment, and posts it.
-  </p>
-
-  <h2>🌐 Resources</h2>
-  <ul>
-    <li><a href="https://scored.co/" target="_blank">Scored.co Website</a></li>
-    <li><a href="https://docs.scored.co/" target="_blank">Scored.co API Documentation</a></li>
-  </ul>
-
-  <h2>🚀 Features</h2>
-  <ul>
-    <li>Fetches new posts from a given <code>COMMUNITY</code>.</li>
-    <li>Randomly selects a comment from <code>comments.txt</code>.</li>
-    <li>Ensures posts are only processed once (tracked via <code>processed_posts.json</code>).</li>
-    <li>Configurable polling interval and comment delay.</li>
-  </ul>
-
-  <h2>📦 Installation</h2>
-  <pre>
-git clone https://github.com/Riotcoke123/scored.co_commentbot.git
+    <h1>Scored.co Comment Bot</h1>
+    <p>A Node.js bot for automatically commenting on new posts in specified Scored.co communities.</p>
+    <h2>License</h2>
+    <p>This project is licensed under the <strong>GNU General Public License v3.0</strong>. You are free to use, modify, and distribute this software under the terms of the GPLv3.</p>
+    <h2>Features</h2>
+    <ul>
+        <li>Automatically fetches new posts from specified communities.</li>
+        <li>Posts randomized comments from a predefined list.</li>
+        <li>Keeps track of processed posts to avoid duplicate comments.</li>
+        <li>Configurable polling interval and delay between comments.</li>
+    </ul>
+    <h2>Installation</h2>
+    <pre><code>git clone https://github.com/Riotcoke123/scored.co_commentbot.git
 cd scored.co_commentbot
 npm install
-  </pre>
+</code></pre>
 
-  <h2>⚙️ Configuration</h2>
-  <p>Create a <code>.env</code> file in the root directory with the following variables:</p>
-  <pre>
-X_API_KEY=your_api_key
-X_API_PLATFORM=your_api_platform
+    <h2>Configuration</h2>
+    <p>Create a <code>.env</code> file in the project root with the following variables:</p>
+    <pre><code>X_API_KEY=your_api_key
+X_API_PLATFORM=your_platform
 X_API_SECRET=your_api_secret
 X_XSRF_TOKEN=your_xsrf_token
 USER_AGENT=your_user_agent
-REFERER=https://scored.co/
-COMMUNITY=community_name
+REFERER=https://scored.co
+COMMUNITY=community1,community2
 POLL_INTERVAL_MS=300000
 DELAY_BETWEEN_COMMENTS_MS=3000
-  </pre>
-  <ul>
-    <li><strong>POLL_INTERVAL_MS</strong> – Time between bot runs (default: 5 minutes).</li>
-    <li><strong>DELAY_BETWEEN_COMMENTS_MS</strong> – Delay between posting comments (default: 3 seconds).</li>
-  </ul>
+</code></pre>
+    <p>Also, add comments to <code>comments.txt</code>, one comment per line.</p>
+    <h2>Usage</h2>
+    <pre><code>node index.js</code></pre>
+    <p>The bot will start running and automatically check for new posts at the configured interval.</p>
+    <h2>File Structure</h2>
+    <ul>
+        <li><code>index.js</code> - Main bot logic</li>
+        <li><code>comments.txt</code> - List of comments to post</li>
+        <li><code>processed_posts.json</code> - Keeps track of posts the bot has already commented on</li>
+        <li><code>.env</code> - Environment configuration</li>
+    </ul>
+    <h2>Dependencies</h2>
+    <ul>
+        <li><code>axios</code> - HTTP client for API requests</li>
+        <li><code>dotenv</code> - Loads environment variables</li>
+        <li><code>fs</code> and <code>path</code> - Node.js file system utilities</li>
+    </ul>
+    <h2>How It Works</h2>
+    <ol>
+        <li>Load environment variables and validate required config.</li>
+        <li>Load processed posts from <code>processed_posts.json</code>.</li>
+        <li>Load comments from <code>comments.txt</code> and shuffle them.</li>
+        <li>Fetch new posts from specified communities via Scored.co API.</li>
+        <li>Post a random comment to each new post.</li>
+        <li>Save the post to <code>processed_posts.json</code> to prevent duplicates.</li>
+        <li>Repeat at the interval specified in <code>POLL_INTERVAL_MS</code>.</li>
+    </ol>
+    <h2>Important Notes</h2>
+    <ul>
+        <li>Ensure <code>comments.txt</code> is not empty; the bot will exit otherwise.</li>
+        <li>Missing environment variables will cause the bot to stop immediately.</li>
+        <li>Be respectful of community guidelines to avoid spamming.</li>
+    </ul>
+    <h2>Contributing</h2>
+    <p>Feel free to fork the project and submit pull requests. Make sure your contributions follow the GPLv3 license.</p>
 
-  <h2>💬 Adding Comments</h2>
-  <p>
-    Add your desired comments (one per line) into 
-    <code>comments.txt</code>.  
-    The bot will randomly choose one for each post.
-  </p>
-
-  <h2>▶️ Usage</h2>
-  <pre>
-node index.js
-  </pre>
-  <p>
-    The bot will then monitor the specified community and comment on new posts.
-  </p>
-
-  <h2>📂 Files</h2>
-  <ul>
-    <li><code>index.js</code> – Main bot logic.</li>
-    <li><code>comments.txt</code> – Contains the pool of possible comments.</li>
-    <li><code>processed_posts.json</code> – Keeps track of already-commented posts.</li>
-    <li><code>.env</code> – Configuration file (not committed).</li>
-  </ul>
-
-  <h2>⚠️ Notes</h2>
-  <ul>
-    <li>Make sure <code>comments.txt</code> is not empty, otherwise the bot will fail.</li>
-    <li>Use valid API keys and tokens from Scored.co.</li>
-    <li>Do not abuse this tool. Excessive automated commenting may violate community rules.</li>
-  </ul>
-
-  <h2>📜 License</h2>
-  <p>
-    This project is licensed under the 
-    <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank">GNU General Public License v3.0</a>.  
-    You are free to use, modify, and distribute this software under the terms of the GPLv3.
-  </p>
-</body>
-</html>
