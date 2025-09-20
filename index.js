@@ -17,7 +17,7 @@ const {
 } = process.env;
 
 // --- VALIDATION ---
-const requiredEnv = ['X_API_KEY', 'X_API_PLATFORM', 'X_API_SECRET', 'X_XSRF_TOKEN', 'COMMUNITY'];
+const requiredEnv = ['X_API_KEY', 'X_API_PLATFORM', 'X_API_SECRET', 'X_XSRF_TOKEN', 'COMMUNITY', 'REFERER', 'USER_AGENT'];
 for (const key of requiredEnv) {
     if (!process.env[key]) {
         console.error(`❌ FATAL ERROR: Missing required environment variable: ${key}`);
@@ -28,35 +28,28 @@ for (const key of requiredEnv) {
 const COMMUNITIES = COMMUNITY.split(',').map(c => c.trim());
 
 // --- CONSTANTS ---
-const API_BASE_URL = 'https://scored.co/api/v2';
+const API_BASE_URL = 'https://api.scored.co/api/v2';
 const PROCESSED_POSTS_PATH = path.join(__dirname, 'processed_posts.json');
 const COMMENTS_PATH = path.join(__dirname, 'comments.txt');
 
 // --- HELPER FUNCTIONS ---
-
-// <<< --- CHANGED --- >>>
-// Now loads an array of post objects and returns both the full data
-// and a Set of just the IDs for quick checking.
 function loadProcessedPosts() {
     let processedData = [];
     try {
         if (fs.existsSync(PROCESSED_POSTS_PATH)) {
             const fileContent = fs.readFileSync(PROCESSED_POSTS_PATH, 'utf8');
-            // Ensure content is not empty before parsing
             if (fileContent) {
                 processedData = JSON.parse(fileContent);
             }
         }
     } catch (error) {
         console.error('⚠️ Could not read or parse processed_posts.json. Starting fresh.', error);
-        processedData = []; // Reset on error
+        processedData = [];
     }
     const processedPostIds = new Set(processedData.map(post => post.id));
     return { processedPostIds, processedData };
 }
 
-// <<< --- CHANGED --- >>>
-// Now saves the entire post object to the array.
 function saveProcessedPost(postObject, processedDataArray) {
     processedDataArray.push(postObject);
     fs.writeFileSync(PROCESSED_POSTS_PATH, JSON.stringify(processedDataArray, null, 2));
@@ -81,28 +74,41 @@ function loadComments() {
     }
 }
 
-function getRandomComment(commentsArray) {
-    return commentsArray[Math.floor(Math.random() * commentsArray.length)];
+// --- COMMENT ROTATOR ---
+let commentPool = [];
+
+function getNextRandomComment(commentsArray) {
+    // Refill and shuffle the pool if empty
+    if (commentPool.length === 0) {
+        commentPool = [...commentsArray];
+        // Shuffle using Fisher–Yates
+        for (let i = commentPool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [commentPool[i], commentPool[j]] = [commentPool[j], commentPool[i]];
+        }
+    }
+    // Take one comment from the pool
+    return commentPool.pop();
 }
 
 // --- API FUNCTIONS ---
-
 async function fetchNewPosts(community) {
     const url = `${API_BASE_URL}/post/newv2.json?community=${community}`;
     console.log(`📡 Fetching new posts from community: ${community}...`);
     try {
         const response = await axios.get(url, {
             headers: {
-                'x-api-key': X_API_KEY,
-                'x-api-platform': X_API_PLATFORM,
-                'x-api-secret': X_API_SECRET,
-                'x-xsrf-token': X_XSRF_TOKEN,
-                'user-agent': USER_AGENT,
-                'referer': REFERER,
-                'sec-ch-ua': '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-            }
+                "x-api-key": X_API_KEY,
+                "x-api-platform": X_API_PLATFORM,
+                "x-api-secret": X_API_SECRET,
+                "x-xsrf-token": X_XSRF_TOKEN,
+                "user-agent": USER_AGENT,
+                "referer": REFERER,
+                "sec-ch-ua": '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"Windows"',
+                "origin": "https://scored.co",
+            },
         });
         return Array.isArray(response.data) ? response.data : response.data.posts || [];
     } catch (error) {
@@ -114,24 +120,26 @@ async function fetchNewPosts(community) {
 async function postComment(postId, commentContent, community) {
     const url = `${API_BASE_URL}/action/create_comment`;
     const params = new URLSearchParams({
-        content: commentContent,
-        parentId: postId,
+        content: String(commentContent),
+        parentId: String(postId),
         commentParentId: "0",
-        community: community,
+        community: String(community),
     });
 
     console.log(`💬 Posting comment to post ${postId} in ${community}: "${commentContent}"`);
+
     try {
         const response = await axios.post(url, params.toString(), {
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'x-api-key': X_API_KEY,
-                'x-api-platform': X_API_PLATFORM,
-                'x-api-secret': X_API_SECRET,
-                'x-xsrf-token': X_XSRF_TOKEN,
-                'user-agent': USER_AGENT,
-                'referer': `${REFERER}c/${community}/${postId}`,
-            }
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-api-key": X_API_KEY,
+                "x-api-platform": X_API_PLATFORM,
+                "x-api-secret": X_API_SECRET,
+                "x-xsrf-token": X_XSRF_TOKEN,
+                "user-agent": USER_AGENT,
+                "referer": `${REFERER.replace(/\/$/, '')}/c/${community}/${postId}`,
+                "origin": "https://scored.co",
+            },
         });
 
         if (response.data?.status === true) {
@@ -144,34 +152,25 @@ async function postComment(postId, commentContent, community) {
     }
 }
 
-// --- MAIN LOGIC ---
-
+// --- MAIN BOT LOGIC ---
 async function runBot() {
     console.log('\n=====================================');
     console.log(`🤖 Starting bot run at ${new Date().toLocaleString()}`);
 
     const comments = loadComments();
-    // <<< --- CHANGED --- >>>
-    // Load both the set of IDs and the full data array.
     const { processedPostIds, processedData } = loadProcessedPosts();
 
     for (const community of COMMUNITIES) {
         console.log(`\n--- Processing community: ${community} ---`);
 
         const newPosts = await fetchNewPosts(community);
-
-        // <<< --- ADDED --- >>>
-        // Add the 'community' property to each post object after fetching.
-        const postsWithCommunity = newPosts.map(post => ({ ...post, community: community }));
-
+        const postsWithCommunity = newPosts.map(post => ({ ...post, community }));
 
         if (!postsWithCommunity || postsWithCommunity.length === 0) {
             console.log(`No new posts found for ${community}.`);
             continue;
         }
 
-        // <<< --- CHANGED --- >>>
-        // Filter using the set of IDs.
         const postsToCommentOn = postsWithCommunity.filter(post => !processedPostIds.has(post.id));
 
         if (postsToCommentOn.length === 0) {
@@ -179,13 +178,11 @@ async function runBot() {
         } else {
             console.log(`Found ${postsToCommentOn.length} new post(s) to process in ${community}.`);
             for (const post of postsToCommentOn.reverse()) {
-                const randomComment = getRandomComment(comments);
+                const randomComment = getNextRandomComment(comments);
                 await postComment(post.id, randomComment, community);
 
-                // <<< --- CHANGED --- >>>
-                // Save the entire post object (which now includes the community).
                 saveProcessedPost(post, processedData);
-                
+
                 await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_COMMENTS_MS || 3000));
             }
         }
